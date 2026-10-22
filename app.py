@@ -64,6 +64,26 @@ section[data-testid="stSidebar"] { background: #FFFFFF; border-right: 1px solid 
             display: inline-flex; align-items: center; justify-content: center; font-size: .75rem; }
 .sb-brand { font-weight: 700; color: #16325C; font-size: 1.05rem; padding-bottom: .5rem; border-bottom: 1px solid #E3E8EF; }
 
+/* ---------- Sidebar: khung cho các ô nhập ---------- */
+section[data-testid="stSidebar"] div[data-testid="stVerticalBlockBorderWrapper"] {
+    border-color: #D5DCE8 !important; border-radius: 14px !important; }
+section[data-testid="stSidebar"] div[data-baseweb="input"],
+section[data-testid="stSidebar"] div[data-baseweb="select"] > div {
+    border: 1.5px solid #CBD5E1 !important; border-radius: 10px !important; background: #F8FAFC !important; }
+section[data-testid="stSidebar"] div[data-baseweb="input"] > div { background: transparent !important; border: none !important; }
+section[data-testid="stSidebar"] div[data-baseweb="input"]:focus-within,
+section[data-testid="stSidebar"] div[data-baseweb="select"] > div:focus-within {
+    border-color: #1F5FBF !important; box-shadow: 0 0 0 3px rgba(31,95,191,.15); background: #fff !important; }
+section[data-testid="stSidebar"] div[role="radiogroup"] { gap: .4rem; }
+section[data-testid="stSidebar"] div[role="radiogroup"] > label {
+    border: 1.5px solid #D5DCE8; border-radius: 10px; padding: .45rem .75rem; background: #fff;
+    width: 100%; margin: 0; transition: all .15s; }
+section[data-testid="stSidebar"] div[role="radiogroup"] > label:hover { border-color: #1F5FBF; background: #F5F8FE; }
+section[data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) {
+    border-color: #1F5FBF; background: #EAF1FD; }
+section[data-testid="stSidebar"] div[data-testid="stExpander"] {
+    border: 1.5px solid #D5DCE8; border-radius: 10px; background: #FBFCFE; }
+
 /* ---------- Tabs ---------- */
 .stTabs [data-baseweb="tab-list"] { gap: .35rem; border-bottom: 1px solid #DCE2EC; }
 .stTabs [data-baseweb="tab"] { padding: .55rem 1.1rem; font-weight: 600; color: #667085; border-radius: 10px 10px 0 0; }
@@ -108,9 +128,9 @@ def kpi(label, value, tone="neutral", sub=""):
             f'<div class="kpi-sub">{html.escape(sub)}</div></div>')
 
 
-def sb_title(n, text):
-    st.sidebar.markdown(f'<div class="sb-title"><span class="step">{n}</span>{text}</div>',
-                        unsafe_allow_html=True)
+def sb_title(target, n, text):
+    target.markdown(f'<div class="sb-title"><span class="step">{n}</span>{text}</div>',
+                    unsafe_allow_html=True)
 
 
 def poly_str(c):
@@ -149,34 +169,35 @@ st.markdown("""
 
 # ====================================================================== SIDEBAR
 st.sidebar.markdown('<div class="sb-brand">📈 Pole-Zero Analyzer</div>', unsafe_allow_html=True)
-sb_title(1, "Nhập hệ thống")
-mode = st.sidebar.radio("Cách nhập", ["Hệ số H(z)", "Cực/Zero (số phức)", "Tương tác (slider r–θ)"],
+box = st.sidebar.container(border=True)
+sb_title(box, 1, "Nhập hệ thống")
+mode = box.radio("Cách nhập", ["Hệ số H(z)", "Cực/Zero (số phức)", "Tương tác (slider r–θ)"],
                         label_visibility="collapsed")
 
 try:
     if mode == "Hệ số H(z)":
-        name = st.sidebar.selectbox("Ví dụ mẫu", list(PRESETS))
+        name = box.selectbox("Ví dụ mẫu", list(PRESETS))
         b_def, a_def = PRESETS[name]
-        b_txt = st.sidebar.text_input("Tử số b  (b₀, b₁, …)", b_def, key=f"b_{name}")
-        a_txt = st.sidebar.text_input("Mẫu số a  (a₀, a₁, …)", a_def, key=f"a_{name}")
-        st.sidebar.caption("H(z) = B(z⁻¹)/A(z⁻¹); nhập hệ số theo lũy thừa z⁻¹ tăng dần.")
+        b_txt = box.text_input("Tử số b  (b₀, b₁, …)", b_def, key=f"b_{name}")
+        a_txt = box.text_input("Mẫu số a  (a₀, a₁, …)", a_def, key=f"a_{name}")
+        box.caption("H(z) = B(z⁻¹)/A(z⁻¹); nhập hệ số theo lũy thừa z⁻¹ tăng dần.")
         zeros, poles, gain, b, a = zpk_from_ba(parse_complex_list(b_txt), parse_complex_list(a_txt))
 
     elif mode == "Cực/Zero (số phức)":
-        z_txt = st.sidebar.text_input("Zeros", "1j, -1j")
-        p_txt = st.sidebar.text_input("Poles", "0.6+0.6j, 0.6-0.6j")
-        gain = st.sidebar.number_input("Hệ số khuếch đại G", value=1.0, step=0.1)
-        st.sidebar.caption("Dùng ký hiệu 1j (không phải j). Ví dụ: 0.6+0.6j, 0.6-0.6j")
+        z_txt = box.text_input("Zeros", "1j, -1j")
+        p_txt = box.text_input("Poles", "0.6+0.6j, 0.6-0.6j")
+        gain = box.number_input("Hệ số khuếch đại G", value=1.0, step=0.1)
+        box.caption("Dùng ký hiệu 1j (không phải j). Ví dụ: 0.6+0.6j, 0.6-0.6j")
         zeros, poles = parse_complex_list(z_txt), parse_complex_list(p_txt)
         b, a = ba_from_zpk(zeros, poles, gain)
 
     else:
-        gain = st.sidebar.slider("Gain G", -5.0, 5.0, 1.0, 0.1)
+        gain = box.slider("Gain G", -5.0, 5.0, 1.0, 0.1)
         zeros_l, poles_l = [], []
         for kind, label, default_n, store in [("z", "Zero", 2, zeros_l), ("p", "Cực", 2, poles_l)]:
-            n_el = st.sidebar.number_input(f"Số {label.lower()}", 0, 6, default_n, key=f"n_{kind}")
+            n_el = box.number_input(f"Số {label.lower()}", 0, 6, default_n, key=f"n_{kind}")
             for i in range(int(n_el)):
-                with st.sidebar.expander(f"{label} {i + 1}", expanded=(i == 0)):
+                with box.expander(f"{label} {i + 1}", expanded=(i == 0)):
                     r = st.slider("Bán kính r", 0.0, 2.5, 1.0 if kind == "z" else 0.8, 0.01, key=f"r_{kind}{i}")
                     th = st.slider("Góc θ (độ)", -180, 180, 45 + 45 * i, 1, key=f"t_{kind}{i}")
                     cj = st.checkbox("Thêm liên hợp phức", True, key=f"c_{kind}{i}")
@@ -187,18 +208,20 @@ except Exception as e:  # lỗi nhập liệu
     st.error(f"Dữ liệu nhập không hợp lệ: {e}")
     st.stop()
 
-sb_title(2, "Miền hội tụ (ROC)")
+box = st.sidebar.container(border=True)
+sb_title(box, 2, "Miền hội tụ (ROC)")
 opts = roc_options(poles)
-idx = st.sidebar.radio("ROC", range(len(opts)), index=len(opts) - 1,
+idx = box.radio("ROC", range(len(opts)), index=len(opts) - 1,
                        format_func=lambda i: opts[i][2], label_visibility="collapsed")
 roc = opts[idx]
 stable, causal = is_stable(roc), is_causal(roc)
 
-sb_title(3, "Hiển thị")
-n_half = st.sidebar.slider("Khoảng n của h(n): −N … N", 10, 100, 30)
-db_scale = st.sidebar.toggle("Biên độ theo dB", True) if hasattr(st.sidebar, "toggle") \
-    else st.sidebar.checkbox("Biên độ theo dB", True)
-show_marks = st.sidebar.checkbox("Vạch tần số đặc trưng (theo góc cực/zero)", True)
+box = st.sidebar.container(border=True)
+sb_title(box, 3, "Hiển thị")
+n_half = box.slider("Khoảng n của h(n): −N … N", 10, 100, 30)
+db_scale = box.toggle("Biên độ theo dB", True) if hasattr(st.sidebar, "toggle") \
+    else box.checkbox("Biên độ theo dB", True)
+show_marks = box.checkbox("Vạch tần số đặc trưng (theo góc cực/zero)", True)
 
 # ====================================================================== FORMULA + KPI
 nstr, dstr = poly_str(np.atleast_1d(b)), poly_str(np.atleast_1d(a))
@@ -434,4 +457,4 @@ $r\,p^n u(n)$ nếu cực trong biên trong của ROC, hoặc $-r\,p^n u(-n-1)$ 
 """)
 
 st.markdown('<div class="footer">Đề tài 13 · Xử lý tín hiệu số · Python · Streamlit · Plotly</div>',
-            unsafe_allow_html=True) 
+            unsafe_allow_html=True)
