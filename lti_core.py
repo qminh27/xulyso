@@ -138,3 +138,70 @@ def expand_pair(r, theta_deg, conj):
     if conj and abs(z.imag) > 1e-9:
         return [z, np.conj(z)]
     return [z]
+
+
+# ---------------------------------------------------------------- biểu thức H(z)
+_SUP = str.maketrans("⁻⁰¹²³⁴⁵⁶⁷⁸⁹", "-0123456789")
+
+
+def parse_hz_expression(text: str):
+    """Phân tích biểu thức H(z) gõ tự do, ví dụ:
+        (6 - 2z^-1 - z^-2) / ((1 - z^-1)(1 - 0.25z^-2))
+        2 + 1/(1 - 0.5z^-1)
+    Chấp nhận: z^-1, z^(-1), z⁻¹, ngoặc, + - * / ^, nhân ngầm (2z, 0.25z^-2, )( ).
+    Trả về (b, a): hệ số theo lũy thừa z^-1 tăng dần, đã rút gọn thừa số chung.
+    """
+    import re
+    import sympy as sp
+    from sympy.parsing.sympy_parser import (
+        parse_expr, standard_transformations, convert_xor)
+
+    s = text.replace("\n", " ").strip()
+    if "=" in s:                                   # bỏ phần 'X(z) ='
+        s = s.split("=", 1)[1]
+    for old, new in [("−", "-"), ("–", "-"), ("·", "*"), ("×", "*"), ("÷", "/"),
+                     ("{", ""), ("}", ""), ("Z", "z")]:
+        s = s.replace(old, new)
+    s = re.sub(r"[⁻⁰¹²³⁴⁵⁶⁷⁸⁹]+", lambda m: "^" + m.group(0).translate(_SUP), s)
+    s = s.strip()
+    if not s:
+        raise ValueError("Chưa nhập biểu thức H(z).")
+    if not re.fullmatch(r"[0-9z+\-*/().^\s]+", s):
+        raise ValueError("Biểu thức chỉ được chứa số, z, + - * / ^ ( ) và dấu chấm thập phân.")
+    s = re.sub(r"(?<=[0-9.)z])\s*(?=[z(])", "*", s)   # nhân ngầm: 2z, )(, z(
+
+    z, x = sp.symbols("z x")
+    try:
+        expr = parse_expr(s, local_dict={"z": z},
+                          transformations=standard_transformations + (convert_xor,))
+        expr = sp.nsimplify(expr, rational=True)        # 0.25 -> 1/4 để rút gọn chính xác
+        expr = sp.cancel(sp.together(expr.subs(z, 1 / x)))
+        num, den = sp.fraction(expr)
+        if expr.free_symbols - {x}:
+            raise ValueError("Biểu thức chứa ký hiệu lạ; chỉ dùng biến z.")
+        pn, pd = sp.Poly(num, x), sp.Poly(den, x)
+    except ValueError:
+        raise
+    except Exception as e:
+        raise ValueError(f"Không đọc được biểu thức ({type(e).__name__}). "
+                         "Kiểm tra lại ngoặc và dấu toán tử.") from e
+    if pd.is_zero:
+        raise ValueError("Mẫu số bằng 0.")
+    b = np.array([float(c) for c in reversed(pn.all_coeffs())])
+    a = np.array([float(c) for c in reversed(pd.all_coeffs())])
+    if abs(a[0]) < EPS:
+        raise ValueError("H(z) chứa lũy thừa dương của z (hệ không nhân quả theo dạng z⁻¹). "
+                         "Hãy viết lại theo z⁻¹, ví dụ z/(z-0.5) = 1/(1-0.5z^-1).")
+    return b / a[0], a / a[0]                       # chuẩn hóa a0 = 1
+
+
+def const_plus_fraction(c, b, a):
+    """H(z) = c + B(z^-1)/A(z^-1) = (c·A + B)/A  -> trả về (b_mới, a)."""
+    b = np.atleast_1d(b).astype(complex)
+    a = np.atleast_1d(a).astype(complex)
+    if abs(a[0]) < EPS:
+        raise ValueError("a[0] phải khác 0.")
+    L = max(len(b), len(a))
+    bp = np.r_[b, np.zeros(L - len(b))]
+    ap = np.r_[a, np.zeros(L - len(a))]
+    return clean(c * ap + bp), clean(a)

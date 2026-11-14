@@ -1,4 +1,5 @@
-streamlit>=1.30
+streamlit>=1.40
 numpy
 scipy
 plotly
+sympy

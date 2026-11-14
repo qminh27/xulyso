@@ -6,6 +6,7 @@ Phần tính toán nằm trong lti_core.py; file này chỉ lo giao diện.
 import html
 import inspect
 import io
+import re
 
 import numpy as np
 import plotly.graph_objects as go
@@ -13,8 +14,9 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 from lti_core import (
-    parse_complex_list, ba_from_zpk, zpk_from_ba, roc_options, is_stable,
-    is_causal, impulse_response, freq_response, group_points, expand_pair,
+    zpk_from_ba, roc_options, is_stable,
+    is_causal, impulse_response, freq_response, group_points,
+    parse_hz_expression,
 )
 
 st.set_page_config(page_title="Pole-Zero LTI Analyzer", page_icon="📈",
@@ -83,6 +85,36 @@ section[data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checke
     border-color: #1F5FBF; background: #EAF1FD; }
 section[data-testid="stSidebar"] div[data-testid="stExpander"] {
     border: 1.5px solid #D5DCE8; border-radius: 10px; background: #FBFCFE; }
+
+/* ---------- Bàn phím ảo ---------- */
+.expr-display { background: #0F1B2D; color: #E8F0FE; border-radius: 12px; padding: .8rem 1.1rem; margin: .2rem 0 .7rem 0;
+        font-family: 'Cambria Math', 'Cambria', 'Times New Roman', serif; font-size: 1.35rem; min-height: 3.1rem;
+        overflow-x: auto; white-space: nowrap; box-shadow: inset 0 1px 6px rgba(0,0,0,.35); }
+.expr-display .lbl { color: #7FB0FF; margin-right: .5rem; }
+.expr-display .ph { color: #6B7C93; font-size: 1rem; }
+.st-key-kpgrid div[data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: .4rem !important; margin-bottom: .4rem; }
+.st-key-kpgrid div[data-testid="stHorizontalBlock"] > div { min-width: 0 !important; flex: 1 1 0 !important; width: auto !important; }
+.st-key-kpgrid button { height: 3rem; padding: 0; font-weight: 600; font-size: 1.1rem; border-radius: 10px;
+        border: 1.5px solid #D5DCE8; background: #FFFFFF; color: #1B2430; box-shadow: 0 1px 2px rgba(16,24,40,.06); }
+.st-key-kpgrid button:hover { border-color: #1F5FBF; color: #1F5FBF; background: #F5F8FE; }
+.st-key-kpgrid button:active { transform: translateY(1px); }
+[class*="st-key-ko_"] button { background: #EEF3FB !important; color: #1F5FBF !important; }
+[class*="st-key-kz_"] button { background: #E6F6F7 !important; color: #0B7A84 !important; border-color: #B6E3E7 !important; }
+[class*="st-key-kc_"] button { background: #FEF3F2 !important; color: #C0392B !important; border-color: #FECDCA !important; }
+
+/* ---------- Hiển thị phân số ---------- */
+.expr-display { display: flex; align-items: center; flex-wrap: nowrap; min-height: 4.6rem; font-size: 1.45rem; }
+.expr-display .tx { white-space: pre; }
+.expr-display .fr { display: inline-flex; flex-direction: column; align-items: stretch; vertical-align: middle; margin: 0 .35rem; }
+.expr-display .nu { border-bottom: 2px solid #E8F0FE; padding: 0 .55rem .18rem .55rem; white-space: pre; text-align: center; min-width: 1.8rem; border-radius: 5px 5px 0 0; }
+.expr-display .de { padding: .18rem .55rem 0 .55rem; white-space: pre; text-align: center; min-width: 1.8rem; border-radius: 0 0 5px 5px; }
+.expr-display .act { background: rgba(77,163,255,.24); }
+.expr-display .ph { color: #6B7C93; font-size: 1rem; }
+.expr-display .caret { display: inline-block; width: 2px; height: 1.15em; background: #4DA3FF; margin-left: 2px;
+        vertical-align: middle; animation: kpblink 1s steps(1) infinite; }
+@keyframes kpblink { 50% { opacity: 0; } }
+[class*="st-key-kf_"] button { background: #FFF4E0 !important; color: #B7791F !important; border-color: #F6D79B !important; }
+[class*="st-key-km_"] button { background: #F2F4F7 !important; color: #475467 !important; }
 
 /* ---------- Tabs ---------- */
 .stTabs [data-baseweb="tab-list"] { gap: .35rem; border-bottom: 1px solid #DCE2EC; }
@@ -156,6 +188,313 @@ PRESETS = {
     "Trễ đơn vị z⁻¹ / (1-0.5z⁻¹)": ("0, 1", "1, -0.5"),
 }
 
+EXPR_PRESETS = {
+    "X(z) = (6−2z⁻¹−z⁻²) / ((1−z⁻¹)(1−0.25z⁻²))": "(6 - 2z^-1 - z^-2) / ((1 - z^-1)(1 - 0.25z^-2))",
+    "Hằng số + phân thức: 2 + 1/(1−0.5z⁻¹)": "2 + 1/(1 - 0.5z^-1)",
+    "Tổng hai phân thức": "1/(1 - 0.5z^-1) + 2/(1 + 0.25z^-1)",
+    "Tích hai hệ bậc 1": "1/((1 - 0.5z^-1)(1 - 2z^-1))",
+    "Hệ FIR: (1+z⁻¹)²": "(1 + z^-1)^2",
+}
+
+# ====================================================================== BÀN PHÍM ẢO
+DEFAULT_EXPR = ""                      # mở web: bàn phím để trống, chưa có hàm mặc định
+_SUPMAP = str.maketrans("-0123456789", "⁻⁰¹²³⁴⁵⁶⁷⁸⁹")
+_OPERAND_RE = re.compile(r"\d*\.?\d*z?(?:\^-?\d+)?")
+
+
+def pretty(e, strip=True):
+    """Chuỗi ASCII gõ vào -> chuỗi đẹp (z⁻¹, ·, −) để hiển thị."""
+    e = re.sub(r"\^(?:\((-?\d+)\)|(-?\d+))",
+               lambda m: (m.group(1) or m.group(2)).translate(_SUPMAP), e)
+    e = e.replace("*", "·").replace("-", "−").replace("+", " + ").replace("/", " / ")
+    e = re.sub(r" {2,}", " ", e)
+    return e.strip() if strip else e
+
+
+# ---- tách / ghép phân số -------------------------------------------------------
+def _match_open(s, j):
+    """s[j] == ')' -> chỉ số '(' tương ứng."""
+    depth = 0
+    for k in range(j, -1, -1):
+        if s[k] == ")":
+            depth += 1
+        elif s[k] == "(":
+            depth -= 1
+            if depth == 0:
+                return k
+    return None
+
+
+def _match_close(s, i):
+    """s[i] == '(' -> chỉ số ')' tương ứng."""
+    depth = 0
+    for k in range(i, len(s)):
+        if s[k] == "(":
+            depth += 1
+        elif s[k] == ")":
+            depth -= 1
+            if depth == 0:
+                return k
+    return None
+
+
+def _left_operand(s, end):
+    """Toán hạng nằm ngay trước vị trí `end`: (start, stop) hoặc None."""
+    j = end
+    while j > 0 and s[j - 1] == " ":
+        j -= 1
+    stop = j
+    if j == 0:
+        return None
+    if s[j - 1] == ")":
+        k = _match_open(s, j - 1)
+        return (k, stop) if k is not None else None
+    k = j
+    while k > 0:
+        c = s[k - 1]
+        if c in "0123456789.z^" or (c == "-" and k >= 2 and s[k - 2] == "^"):
+            k -= 1
+        else:
+            break
+    return (k, stop) if k < stop else None
+
+
+def _right_operand(s, i):
+    j = i
+    while j < len(s) and s[j] == " ":
+        j += 1
+    if j >= len(s):
+        return None
+    if s[j] == "(":
+        e = _match_close(s, j)
+        return (j, e + 1) if e is not None else None
+    m = _OPERAND_RE.match(s, j)
+    return (j, m.end()) if m and m.end() > j else None
+
+
+def _unwrap(t):
+    t = t.strip()
+    if t.startswith("(") and _match_close(t, 0) == len(t) - 1:
+        return t[1:-1].strip()
+    return t
+
+
+def expr_to_seq(expr):
+    """Chuỗi biểu thức -> danh sách [văn bản, phân số, văn bản, ...]
+    (mọi dấu '/' ở ngoài cùng được đổi thành phân số để hiển thị)."""
+    s = expr
+    slashes, d = [], 0
+    for k, ch in enumerate(s):
+        if ch == "(":
+            d += 1
+        elif ch == ")":
+            d -= 1
+        elif ch == "/" and d == 0:
+            slashes.append(k)
+    seq, last = [], 0
+    for k in slashes:
+        L, R = _left_operand(s, k), _right_operand(s, k + 1)
+        if L is None or R is None or L[0] < last:
+            continue
+        seq.append({"t": "txt", "v": s[last:L[0]]})
+        seq.append({"t": "frac", "n": _unwrap(s[L[0]:L[1]]), "d": _unwrap(s[R[0]:R[1]])})
+        last = R[1]
+    seq.append({"t": "txt", "v": s[last:]})
+    return seq
+
+
+def _build(seq):
+    """Danh sách -> (chuỗi biểu thức, có_phân_số_chưa_đủ?)."""
+    parts, incomplete = [], False
+    for it in seq:
+        if it["t"] == "txt":
+            parts.append(it["v"])
+        else:
+            n, dn = it["n"].strip(), it["d"].strip()
+            incomplete = incomplete or not n or not dn
+            parts.append(f"({n})/({dn})")
+    return "".join(parts), incomplete
+
+
+def _commit(seq, cur):
+    st.session_state.seq = seq
+    st.session_state.cur = cur
+    st.session_state.expr = _build(seq)[0]
+
+
+def _load_text(text):
+    seq = expr_to_seq(text)
+    st.session_state.seq = seq
+    st.session_state.cur = [len(seq) - 1, "v"]
+    st.session_state.expr = text
+
+
+if "seq" not in st.session_state:
+    _load_text(DEFAULT_EXPR)
+
+
+# ---- thao tác phím -------------------------------------------------------------
+def kp_add(tok):
+    seq, (i, f) = st.session_state.seq, st.session_state.cur
+    seq[i][f] += tok
+    _commit(seq, [i, f])
+
+
+def kp_frac():
+    seq, (i, f) = st.session_state.seq, st.session_state.cur
+    if seq[i]["t"] == "frac":
+        st.session_state.kp_msg = "Chưa hỗ trợ phân số lồng nhau: hãy bấm → để thoát ra rồi nhập tiếp."
+        return
+    v = seq[i]["v"]
+    L = _left_operand(v, len(v))              # lấy toán hạng đứng trước làm tử số
+    if L:
+        num, seq[i]["v"] = _unwrap(v[L[0]:L[1]]), v[:L[0]]
+    else:
+        num = ""
+    seq[i + 1:i + 1] = [{"t": "frac", "n": num, "d": ""}, {"t": "txt", "v": ""}]
+    _commit(seq, [i + 1, "d" if num else "n"])
+
+
+def kp_back():
+    seq, (i, f) = st.session_state.seq, st.session_state.cur
+    it = seq[i]
+    cur = [i, f]
+    if it[f]:
+        m = re.search(r"z\^-?\d+$", it[f])    # xóa nguyên z^-k một lần
+        it[f] = it[f][:m.start()] if m else it[f][:-1]
+    elif it["t"] == "frac":
+        if f == "d":
+            cur = [i, "n"]
+        elif not it["d"]:                     # phân số rỗng: xóa luôn, ghép văn bản hai bên
+            seq[i - 1]["v"] += seq[i + 1]["v"]
+            del seq[i:i + 2]
+            cur = [i - 1, "v"]
+        else:
+            cur = [i - 1, "v"]
+    elif i > 0:
+        cur = [i - 1, "d"]
+    _commit(seq, cur)
+
+
+def kp_clear():
+    _commit([{"t": "txt", "v": ""}], [0, "v"])
+
+
+def kp_left():
+    seq, (i, f) = st.session_state.seq, st.session_state.cur
+    if f == "d":
+        cur = [i, "n"]
+    elif f == "n":
+        cur = [i - 1, "v"]
+    else:
+        cur = [i - 1, "d"] if i > 0 else [i, f]
+    st.session_state.cur = cur
+
+
+def kp_right():
+    seq, (i, f) = st.session_state.seq, st.session_state.cur
+    if f == "n":
+        cur = [i, "d"]
+    elif f == "d":
+        cur = [i + 1, "v"]
+    else:
+        cur = [i + 1, "n"] if i + 1 < len(seq) else [i, f]
+    st.session_state.cur = cur
+
+
+def kp_end():
+    st.session_state.cur = [len(st.session_state.seq) - 1, "v"]
+
+
+def kp_load():
+    ch = st.session_state.get("ex_choice")
+    if ch in EXPR_PRESETS:
+        _load_text(EXPR_PRESETS[ch])
+
+
+def kp_from_text():
+    _load_text(st.session_state.get("expr", ""))
+
+
+# (nhãn hiển thị, ký tự chèn, nhóm màu)
+KEYPAD = [
+    [("7", "7", "kn"), ("8", "8", "kn"), ("9", "9", "kn"), ("a⁄b", None, "kf"), ("(", "(", "ko"), (")", ")", "ko")],
+    [("4", "4", "kn"), ("5", "5", "kn"), ("6", "6", "kn"), ("×", "*", "ko"), ("z⁻¹", "z^-1", "kz"), ("z⁻²", "z^-2", "kz")],
+    [("1", "1", "kn"), ("2", "2", "kn"), ("3", "3", "kn"), ("−", "-", "ko"), ("z", "z", "kz"), ("z⁻³", "z^-3", "kz")],
+    [("0", "0", "kn"), (".", ".", "kn"), ("+", "+", "ko"), ("^", "^", "ko"), ("⌫", None, "kc"), ("C", None, "kc")],
+    [("←", None, "km"), ("→", None, "km"), ("z⁻⁴", "z^-4", "kz"), ("z⁻⁵", "z^-5", "kz"),
+     ("z⁻⁶", "z^-6", "kz"), ("↵", None, "km")],
+]
+_ACTIONS = {"a⁄b": kp_frac, "⌫": kp_back, "C": kp_clear, "←": kp_left, "→": kp_right, "↵": kp_end}
+
+
+def wide_button(label, **kw):
+    if "width" in inspect.signature(st.button).parameters:
+        return st.button(label, width="stretch", **kw)
+    return st.button(label, use_container_width=True, **kw)
+
+
+def keyed_container(key, **kw):
+    try:
+        return st.container(key=key, **kw)
+    except TypeError:                                # Streamlit cũ chưa có tham số key
+        return st.container(**kw)
+
+
+def display_html(seq, cur):
+    """Màn hình hiển thị: phân số vẽ dạng tử trên - mẫu dưới, có con trỏ nhấp nháy."""
+    ic, fc = cur
+    caret = '<span class="caret"></span>'
+    parts = []
+    for i, it in enumerate(seq):
+        if it["t"] == "txt":
+            parts.append('<span class="tx">' + html.escape(pretty(it["v"], strip=False))
+                         + (caret if i == ic else "") + "</span>")
+        else:
+            cells = []
+            for field, cls in (("n", "nu"), ("d", "de")):
+                val = it[field]
+                inner = html.escape(pretty(val)) if val.strip() else '<span class="ph">▢</span>'
+                active = (i == ic and fc == field)
+                cells.append(f'<span class="{cls}{" act" if active else ""}">{inner}{caret if active else ""}</span>')
+            parts.append('<span class="fr">' + "".join(cells) + "</span>")
+    empty = len(seq) == 1 and not seq[0]["v"]
+    hint = '<span class="ph">bấm phím bên dưới để nhập…</span>' if empty else ""
+    return '<div class="expr-display"><span class="lbl">H(z) =</span>' + "".join(parts) + hint + "</div>"
+
+
+def render_keypad(err=None):
+    with st.container(border=True):
+        st.markdown('<div class="section-title">⌨ Nhập hàm truyền H(z) bằng bàn phím ảo</div>',
+                    unsafe_allow_html=True)
+        st.markdown(display_html(st.session_state.seq, st.session_state.cur), unsafe_allow_html=True)
+        msg = st.session_state.pop("kp_msg", None)
+        if msg:
+            st.markdown(f'<div class="note">ℹ {html.escape(msg)}</div>', unsafe_allow_html=True)
+        if err:
+            st.markdown(f'<div class="banner bad">⚠ {html.escape(str(err))}</div>', unsafe_allow_html=True)
+        with keyed_container("kpgrid"):
+            for ri, row in enumerate(KEYPAD):
+                cols = st.columns(len(row))
+                for ci, (label, tok, kind) in enumerate(row):
+                    with cols[ci]:
+                        key = f"{kind}_{ri}{ci}"
+                        if tok is None:
+                            wide_button(label, key=key, on_click=_ACTIONS[label])
+                        else:
+                            wide_button(label, key=key, on_click=kp_add, args=(tok,))
+        c1, c2 = st.columns([3, 2], gap="medium")
+        with c1:
+            st.text_input("Hoặc gõ tay trực tiếp", key="expr", on_change=kp_from_text,
+                          placeholder="Ví dụ: 2 + 1/(1 - 0.5z^-1)")
+        with c2:
+            st.selectbox("Nạp ví dụ mẫu", ["— Chọn để nạp —"] + list(EXPR_PRESETS),
+                         key="ex_choice", on_change=kp_load)
+        st.caption("Bấm a⁄b để tạo phân số: nếu ngay trước đó có số hoặc cụm (…) thì nó thành tử số, "
+                   "con trỏ nhảy xuống mẫu số. Dùng ← → để chuyển giữa tử, mẫu và phần còn lại; "
+                   "↵ để nhảy về cuối biểu thức.")
+
+
 # ====================================================================== HERO
 st.markdown("""
 <div class="hero">
@@ -167,49 +506,33 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+kp_slot = st.container()          # chỗ đặt bàn phím ảo (điền sau khi biết chế độ nhập)
+
 # ====================================================================== SIDEBAR
 st.sidebar.markdown('<div class="sb-brand">📈 Pole-Zero Analyzer</div>', unsafe_allow_html=True)
-box = st.sidebar.container(border=True)
-sb_title(box, 1, "Nhập hệ thống")
-mode = box.radio("Cách nhập", ["Hệ số H(z)", "Cực/Zero (số phức)", "Tương tác (slider r–θ)"],
-                        label_visibility="collapsed")
-
+kp_err, kp_empty = None, False
 try:
-    if mode == "Hệ số H(z)":
-        name = box.selectbox("Ví dụ mẫu", list(PRESETS))
-        b_def, a_def = PRESETS[name]
-        b_txt = box.text_input("Tử số b  (b₀, b₁, …)", b_def, key=f"b_{name}")
-        a_txt = box.text_input("Mẫu số a  (a₀, a₁, …)", a_def, key=f"a_{name}")
-        box.caption("H(z) = B(z⁻¹)/A(z⁻¹); nhập hệ số theo lũy thừa z⁻¹ tăng dần.")
-        zeros, poles, gain, b, a = zpk_from_ba(parse_complex_list(b_txt), parse_complex_list(a_txt))
-
-    elif mode == "Cực/Zero (số phức)":
-        z_txt = box.text_input("Zeros", "1j, -1j")
-        p_txt = box.text_input("Poles", "0.6+0.6j, 0.6-0.6j")
-        gain = box.number_input("Hệ số khuếch đại G", value=1.0, step=0.1)
-        box.caption("Dùng ký hiệu 1j (không phải j). Ví dụ: 0.6+0.6j, 0.6-0.6j")
-        zeros, poles = parse_complex_list(z_txt), parse_complex_list(p_txt)
-        b, a = ba_from_zpk(zeros, poles, gain)
-
+    if not st.session_state.get("expr", "").strip():
+        kp_empty = True                           # chưa nhập gì: chỉ hiện bàn phím + lời nhắc
     else:
-        gain = box.slider("Gain G", -5.0, 5.0, 1.0, 0.1)
-        zeros_l, poles_l = [], []
-        for kind, label, default_n, store in [("z", "Zero", 2, zeros_l), ("p", "Cực", 2, poles_l)]:
-            n_el = box.number_input(f"Số {label.lower()}", 0, 6, default_n, key=f"n_{kind}")
-            for i in range(int(n_el)):
-                with box.expander(f"{label} {i + 1}", expanded=(i == 0)):
-                    r = st.slider("Bán kính r", 0.0, 2.5, 1.0 if kind == "z" else 0.8, 0.01, key=f"r_{kind}{i}")
-                    th = st.slider("Góc θ (độ)", -180, 180, 45 + 45 * i, 1, key=f"t_{kind}{i}")
-                    cj = st.checkbox("Thêm liên hợp phức", True, key=f"c_{kind}{i}")
-                    store.extend(expand_pair(r, th, cj))
-        zeros, poles = np.array(zeros_l, dtype=complex), np.array(poles_l, dtype=complex)
-        b, a = ba_from_zpk(zeros, poles, gain)
+        if _build(st.session_state.seq)[1]:
+            raise ValueError("Phân số chưa nhập đủ tử số và mẫu số.")
+        b_in, a_in = parse_hz_expression(st.session_state.get("expr", ""))
+        zeros, poles, gain, b, a = zpk_from_ba(b_in, a_in)
 except Exception as e:  # lỗi nhập liệu
-    st.error(f"Dữ liệu nhập không hợp lệ: {e}")
+    kp_err = str(e)
+
+with kp_slot:
+    render_keypad(kp_err)
+if kp_empty:
+    st.info("Chưa có hàm truyền. Hãy bấm phím trên bàn phím ảo để nhập H(z), "
+            "hoặc chọn một ví dụ ở ô «Nạp ví dụ mẫu». Kết quả phân tích sẽ hiện ngay sau khi bạn nhập.")
+    st.stop()
+if kp_err:
     st.stop()
 
 box = st.sidebar.container(border=True)
-sb_title(box, 2, "Miền hội tụ (ROC)")
+sb_title(box, 1, "Miền hội tụ (ROC)")
 opts = roc_options(poles)
 idx = box.radio("ROC", range(len(opts)), index=len(opts) - 1,
                        format_func=lambda i: opts[i][2], label_visibility="collapsed")
@@ -217,7 +540,7 @@ roc = opts[idx]
 stable, causal = is_stable(roc), is_causal(roc)
 
 box = st.sidebar.container(border=True)
-sb_title(box, 3, "Hiển thị")
+sb_title(box, 2, "Hiển thị")
 n_half = box.slider("Khoảng n của h(n): −N … N", 10, 100, 30)
 db_scale = box.toggle("Biên độ theo dB", True) if hasattr(st.sidebar, "toggle") \
     else box.checkbox("Biên độ theo dB", True)
