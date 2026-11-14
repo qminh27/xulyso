@@ -498,7 +498,7 @@ def render_keypad(err=None):
 # ====================================================================== HERO
 st.markdown("""
 <div class="hero">
-  <div class="hero-title">Phân tích Pole-Zero &amp; Đáp ứng tần số hệ LTI</div>
+  <div class="hero-title">Phân tích biểu đồ Pole-Zero &amp; Đáp ứng tần số hệ LTI</div>
   <div class="hero-sub">Công cụ học tập trực quan hóa mối liên hệ giữa vị trí cực/zero với tính ổn định,
   miền hội tụ và đáp ứng tần số của hệ thống rời rạc.</div>
   <div class="hero-tags"><span>Biến đổi Z</span><span>ROC</span><span>Đáp ứng xung h(n)</span>
